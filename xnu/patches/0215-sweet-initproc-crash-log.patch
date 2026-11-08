@@ -1,0 +1,19 @@
+--- a/bsd/kern/kern_exit.c
++++ b/bsd/kern/kern_exit.c
+@@ -1737,6 +1737,15 @@
+ static void
+ proc_crash_coredump(proc_t p)
+ {
+ 	(void)p;
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++	/* initproc panics before proc_prepareexit(), so 0043's CRASH report never runs for launchd. */
++	if (p == current_proc()) {
++		extern void sweet_crash_log(const char *, int, int, uint64_t, uint64_t);
++		uthread_t sut = current_uthread();
++		sweet_crash_log(p->p_comm, proc_getpid(p), 0,
++		    ((uint64_t)sut->uu_exception << 32) | (uint32_t)sut->uu_code, sut->uu_subcode);
++	}
++#endif
+ #if (DEVELOPMENT || DEBUG) && CONFIG_COREDUMP
+ 	/*
+ 	 * For debugging purposes, generate a core file of initproc before
