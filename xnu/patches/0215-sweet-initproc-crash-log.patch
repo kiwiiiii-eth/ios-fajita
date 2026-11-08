@@ -1,6 +1,6 @@
 --- a/bsd/kern/kern_exit.c
 +++ b/bsd/kern/kern_exit.c
-@@ -1737,6 +1737,15 @@
+@@ -1737,7 +1737,16 @@
  static void
  proc_crash_coredump(proc_t p)
  {
