@@ -1,0 +1,80 @@
+--- a/bsd/dev/sweet_ufs.c
++++ b/bsd/dev/sweet_ufs.c
+@@ -112,6 +112,7 @@ static struct {
+ 	bool writable;                          /* boot-arg ufsrw=1 */
+ 	bool cache;                             /* boot-arg ufscache=1 */
+ 	bool wait;                              /* boot-arg ufswait=1 */
++	bool verify;                            /* boot-arg ufsverify=0 turns it off */
+ 	int bmajor, cmajor;
+ 	dev_t bdev;
+ 	bool ready;
+@@ -284,6 +285,19 @@ ufs_scsi(const uint8_t *cdb, unsigned cdb_len, uint32_t len, bool write)
+ 		    cdb[0], ocs, ucd->resp[0], ucd->resp[6], ucd->resp[7]);
+ 		return EIO;
+ 	}
++	/* fajita: a short transfer (underflow / residual) leaves stale bytes in the bounce buffer */
++	uint32_t resid = (uint32_t)ucd->resp[12] << 24 | (uint32_t)ucd->resp[13] << 16 |
++	    (uint32_t)ucd->resp[14] << 8 | ucd->resp[15];
++	if ((ucd->resp[1] & 0x60) || resid) {
++		static int resid_logged;
++		if (resid_logged++ < 32) {
++			printf("SWEET UFS: command 0x%02x len %u flags 0x%x residual %u\n",
++			    cdb[0], len, ucd->resp[1], resid);
++		}
++		if (len && !write) {
++			return EIO;
++		}
++	}
+ 	return 0;
+ }
+ 
+@@ -537,10 +551,37 @@ sweet_ufs_strategy(buf_t bp)
+ 		uint32_t blocks = (skip + want + UFS_BLOCK - 1) / UFS_BLOCK;
+ 		void *bounce = (void *)(su.dma + DMA_BOUNCE);
+ 		if (rd) {
+-			error = ufs_read_blocks(first + lba, blocks);
++			for (int t = 0; t < 5; t++) {
++				error = ufs_read_blocks(first + lba, blocks);
++				if (!error) {
++					break;
++				}
++			}
+ 			if (!error) {
+ 				memcpy(vaddr + done, (const char *)bounce + skip, want);
+ 			}
++			/* fajita: read again and compare; keep reading until two reads agree */
++			for (int t = 0; !error && su.verify && t < 8; t++) {
++				int e2 = ufs_read_blocks(first + lba, blocks);
++				if (e2) {
++					continue;
++				}
++				if (memcmp(vaddr + done, (const char *)bounce + skip, want) == 0) {
++					break;
++				}
++				static int mismatch_logged;
++				if (mismatch_logged++ < 32) {
++					const uint8_t *a = (const uint8_t *)(vaddr + done);
++					const uint8_t *b = (const uint8_t *)bounce + skip;
++					uint32_t at = 0;
++					while (at < want && a[at] == b[at]) {
++						at++;
++					}
++					printf("SWEET UFS: read mismatch lba 0x%llx blocks %u try %d first diff +0x%x\n",
++					    (unsigned long long)(first + lba), blocks, t, at);
++				}
++				memcpy(vaddr + done, (const char *)bounce + skip, want);
++			}
+ 		} else {
+ 			/* Partial device blocks at either end: read, merge, write back. */
+ 			if (skip || (want % UFS_BLOCK)) {
+@@ -724,6 +765,10 @@ sweet_ufs_init(void)
+ 	PE_parse_boot_argn("ufswait", &wait, sizeof(wait));
+ 	su.cache = (cache == 1);
+ 	su.wait = (wait == 1);
++	uint32_t verify = 1;
++	PE_parse_boot_argn("ufsverify", &verify, sizeof(verify));
++	su.verify = (verify != 0);
++	printf("SWEET UFS: read verify %s\n", su.verify ? "on" : "off");
+ 
+ 	su.regs = ml_io_map(reg[0], reg[1]);
+ 	if (kmem_alloc_contig(kernel_map, &su.dma, DMA_SIZE, PAGE_MASK, 0, 0,
