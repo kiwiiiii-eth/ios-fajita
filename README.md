@@ -1,3 +1,7 @@
+> **Archived.** This fork of [edi194/ios-fajita](https://github.com/edi194/ios-fajita) is no longer developed.
+> The OnePlus 6T work moved to HakiOS in November 2026 and continues at
+> **[kiwiiiii-eth/hakios-fajita](https://github.com/kiwiiiii-eth/hakios-fajita)**: GPU, Wi-Fi, charging and more on XNU.
+
 # iOS on the OnePlus 6T (`fajita`)
 
 **Apple's iOS 16.7.16 running on a OnePlus 6T.**
